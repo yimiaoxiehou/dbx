@@ -1,6 +1,6 @@
 import { ref } from "vue";
 import { useSettingsStore } from "@/stores/settingsStore";
-import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
+import { isTauriRuntime, isDesktopRuntime } from "@/lib/backend/tauriRuntime";
 import * as api from "@/lib/backend/api";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -26,7 +26,7 @@ export function useCloseActionPrompt(options: { requestClose: (action: AppCloseA
   }
 
   async function performCloseAction(action: AppCloseAction) {
-    if (!isTauriRuntime()) return;
+    if (!isDesktopRuntime()) return;
     await api.completeAppClose(action);
   }
 
@@ -59,17 +59,26 @@ export function useCloseActionPrompt(options: { requestClose: (action: AppCloseA
   }
 
   function setupCloseActionPromptListener() {
-    if (!isTauriRuntime()) return;
-    void import("@tauri-apps/api/event").then(({ listen }) => {
-      listen<AppCloseRequestTarget>("dbx-app-close-requested", (event: AppCloseRequestPayload) => {
-        handleCloseRequest(event.payload === "quit" ? "quit" : "settings");
-      }).then((unlisten) => {
-        unlistenHandles.push(unlisten);
-        // Rust falls back to native Quit until this listener is installed, so a
-        // failed WebView2 startup cannot leave the tray request waiting forever.
-        void invoke("mark_frontend_ready");
+    if (!isDesktopRuntime()) return;
+    if (isTauriRuntime()) {
+      void import("@tauri-apps/api/event").then(({ listen }) => {
+        listen<AppCloseRequestTarget>("dbx-app-close-requested", (event: AppCloseRequestPayload) => {
+          handleCloseRequest(event.payload === "quit" ? "quit" : "settings");
+        }).then((unlisten) => {
+          unlistenHandles.push(unlisten);
+          // Rust falls back to native Quit until this listener is installed, so a
+          // failed WebView2 startup cannot leave the tray request waiting forever.
+          void invoke("mark_frontend_ready");
+        });
       });
+      return;
+    }
+    // Electron: the main process relays the OS close request over IPC.
+    const api = (window as unknown as { electronAPI: { onAppCloseRequest(cb: (payload: AppCloseRequestTarget) => void): () => void } }).electronAPI;
+    const off = api.onAppCloseRequest((payload) => {
+      handleCloseRequest(payload === "quit" ? "quit" : "settings");
     });
+    unlistenHandles.push(off);
   }
 
   function cleanupCloseActionPromptListener() {

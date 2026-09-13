@@ -1,5 +1,5 @@
 import { ref, onMounted, onUnmounted } from "vue";
-import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
+import { isTauriRuntime, isDesktopRuntime } from "@/lib/backend/tauriRuntime";
 import { isMacOS } from "@/lib/backend/platform";
 import * as api from "@/lib/backend/api";
 
@@ -45,28 +45,43 @@ export function useWindowControls() {
   const isMaximized = ref(false);
   const isFullscreen = ref(false);
   const isMac = isMacOS();
-  const isDesktop = isTauriRuntime();
+  const isDesktop = isDesktopRuntime();
   const showControls = shouldShowWindowControls(isMac, isDesktop);
 
   let unlisten: (() => void) | null = null;
 
   async function updateWindowState() {
     if (!isDesktop) return;
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const currentWindow = getCurrentWindow();
-    const [maximized, fullscreen] = await Promise.all([currentWindow.isMaximized(), currentWindow.isFullscreen()]);
-    isMaximized.value = maximized;
-    isFullscreen.value = fullscreen;
+    if (isTauriRuntime()) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const currentWindow = getCurrentWindow();
+      const [maximized, fullscreen] = await Promise.all([currentWindow.isMaximized(), currentWindow.isFullscreen()]);
+      isMaximized.value = maximized;
+      isFullscreen.value = fullscreen;
+    } else {
+      const api = (window as unknown as { electronAPI: { isMaximized(): Promise<boolean>; isFullscreen(): Promise<boolean> } }).electronAPI;
+      const [maximized, fullscreen] = await Promise.all([api.isMaximized(), api.isFullscreen()]);
+      isMaximized.value = maximized;
+      isFullscreen.value = fullscreen;
+    }
   }
 
   async function minimize() {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().minimize();
+    if (isTauriRuntime()) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().minimize();
+    } else {
+      await (window as unknown as { electronAPI: { minimize(): Promise<void> } }).electronAPI.minimize();
+    }
   }
 
   async function toggleMaximize() {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    await getCurrentWindow().toggleMaximize();
+    if (isTauriRuntime()) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().toggleMaximize();
+    } else {
+      await (window as unknown as { electronAPI: { toggleMaximize(): Promise<void> } }).electronAPI.toggleMaximize();
+    }
     setTimeout(updateWindowState, 50);
   }
 
@@ -78,11 +93,18 @@ export function useWindowControls() {
   onMounted(async () => {
     if (!isDesktop) return;
     await updateWindowState();
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
-    const unlistenFn = await getCurrentWindow().onResized(() => {
-      void updateWindowState();
-    });
-    unlisten = unlistenFn;
+    if (isTauriRuntime()) {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const unlistenFn = await getCurrentWindow().onResized(() => {
+        void updateWindowState();
+      });
+      unlisten = unlistenFn;
+    } else {
+      const api = (window as unknown as { electronAPI: { onResized(cb: () => void): () => void } }).electronAPI;
+      unlisten = api.onResized(() => {
+        void updateWindowState();
+      });
+    }
   });
 
   onUnmounted(() => {

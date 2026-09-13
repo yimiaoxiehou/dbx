@@ -1,4 +1,4 @@
-import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
+import { isTauriRuntime, isElectronRuntime } from "@/lib/backend/tauriRuntime";
 import type * as TauriModule from "@/lib/backend/tauri";
 import { appendDebugLog } from "@/lib/backend/debugLog";
 import { useSettingsStore } from "@/stores/settingsStore";
@@ -14,7 +14,7 @@ let _backend: Backend | null = null;
 
 async function getBackend(): Promise<Backend> {
   if (_backend) return _backend;
-  _backend = isTauriRuntime(globalThis) ? await import("@/lib/backend/tauri") : await import("@/lib/backend/http");
+  _backend = isTauriRuntime(globalThis) ? await import("@/lib/backend/tauri") : isElectronRuntime(globalThis) ? await import("@/lib/backend/electron") : await import("@/lib/backend/http");
   return _backend;
 }
 

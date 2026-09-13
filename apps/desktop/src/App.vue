@@ -65,7 +65,7 @@ import { resolveHistorySqlRestoreTarget } from "@/lib/history/historyRestoreTarg
 import { resolveExecutableSql, resolveExecutableSqlWithBackend, type SqlExecutionOverride, type SqlExecutionSnapshot } from "@/lib/sql/sqlExecutionTarget";
 import { uuid } from "@/lib/common/utils";
 import { isMacOS, isWindows } from "@/lib/backend/platform";
-import { isTauriRuntime } from "@/lib/backend/tauriRuntime";
+import { isTauriRuntime, isDesktopRuntime } from "@/lib/backend/tauriRuntime";
 import { openQueryResultArchiveFile } from "@/lib/query/queryResultArchiveFile";
 import { rememberExternalSqlFileTarget, resolveExternalSqlFileTarget, unassociatedExternalSqlFileTarget } from "@/lib/sql/externalSqlFileTarget";
 import { externalSqlFileOpenErrorMessage, externalSqlEditorMaxBytes, isSqlFilePath, readBrowserSqlFile, sqlFileTitleFromPath } from "@/lib/sql/sqlFileOpen";
@@ -240,14 +240,14 @@ const {
 const { setupFileDrop } = useFileDrop();
 const { openInStreamingExecutorOnTooLarge } = useLargeSqlFileStreamingFallback();
 
-const isDesktop = isTauriRuntime();
+const isDesktop = isDesktopRuntime();
 const windowContext = resolveWindowContext();
 const isDetachedWindowContext = windowContext.kind === "detached-tab";
 const detachedContextTabId = windowContext.kind === "detached-tab" ? windowContext.tabId : undefined;
 let updateWindowReady = false;
 let updatePreparation: Awaited<ReturnType<typeof setupUpdatePreparation>> | undefined;
 async function initializeUpdatePreparation() {
-  if (!isDesktop || updatePreparation) return;
+  if (!isTauriRuntime() || updatePreparation) return;
   updatePreparation = await setupUpdatePreparation({
     translate: (key) => t(key),
     assertSafe() {
@@ -304,8 +304,8 @@ const { mcpUpdateAvailable, refreshMcpUpdateStatus, handleMcpStatusChanged } = u
 const drawDesktopWindowFrame = shouldDrawDesktopWindowFrame(isMacOS(), isDesktop, isWindows());
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 let updateCheckTimer: ReturnType<typeof setInterval> | undefined;
-const needsAuth = ref(!isDesktop);
-const authenticated = ref(isDesktop);
+const needsAuth = ref(!isTauriRuntime());
+const authenticated = ref(isTauriRuntime());
 const setupRequired = ref(false);
 
 const showConnectionDialog = ref(false);
@@ -641,7 +641,7 @@ async function initDetachedWindow() {
 }
 
 async function setupDetachedWindowEvents() {
-  if (!isDesktop) return;
+  if (!isTauriRuntime()) return;
   const { listen } = await import("@tauri-apps/api/event");
   const events: Array<[string, (payload: unknown) => Promise<void>]> = isDetachedWindowContext
     ? [
@@ -1699,7 +1699,7 @@ function handleCloseActionPromptOpenChange(open: boolean) {
 }
 
 async function writeExternalSqlTab(tab: QueryTab, options: { closeAfterSave?: boolean; expectedContentHash?: string; expectedMissing?: boolean } = {}): Promise<"saved" | "retry" | "failed"> {
-  if (!tab.externalSqlPath || !isTauriRuntime()) return "failed";
+  if (!tab.externalSqlPath || !isDesktopRuntime()) return "failed";
   try {
     const result = await api.writeExternalSqlFile(tab.externalSqlPath, await formattedSqlForSave(tab), {
       expectedContentHash: options.expectedContentHash,
@@ -1718,7 +1718,7 @@ async function writeExternalSqlTab(tab: QueryTab, options: { closeAfterSave?: bo
 }
 
 async function saveExternalSqlPath(tab: QueryTab, options: { closeAfterSave?: boolean } = {}): Promise<boolean> {
-  if (!tab.externalSqlPath || !isTauriRuntime()) return false;
+  if (!tab.externalSqlPath || !isDesktopRuntime()) return false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const preparation = await externalSqlFileChanges.prepareSave(tab);
     if (!preparation.proceed) {
@@ -2038,7 +2038,7 @@ async function confirmSaveSqlToLibrary() {
 }
 
 async function saveExternalSqlTabAs(tab: QueryTab): Promise<boolean> {
-  if (!canSaveSqlTab(tab) || !isTauriRuntime()) return false;
+  if (!canSaveSqlTab(tab) || !isDesktopRuntime()) return false;
   try {
     // Non-SQL external tabs (custom-filtered text files) keep their own file
     // name and extension when saving a copy instead of being forced to .sql.
@@ -2145,7 +2145,7 @@ function pasteClipboardAsSqlInCondition() {
 let desktopOpenTabsRestorationBarrier: OpenTabsRestorationBarrier | null = null;
 
 async function openSqlFilePath(path: string) {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   try {
     await desktopOpenTabsRestorationBarrier?.settled;
     const snapshot = await api.readExternalSqlFileSnapshot(path, externalSqlEditorMaxBytes(settingsStore.editorSettings.externalSqlEditorMaxMb));
@@ -2157,7 +2157,7 @@ async function openSqlFilePath(path: string) {
 }
 
 async function openPendingSqlFiles() {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   try {
     const paths = await api.pendingOpenSqlFiles();
     for (const path of paths) {
@@ -2169,7 +2169,7 @@ async function openPendingSqlFiles() {
 }
 
 async function openDbFilePath(path: string) {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   await connectionStore.initFromDisk();
   try {
     const name = path.split("/").pop()?.split("\\").pop() || path;
@@ -2216,7 +2216,7 @@ async function openDbFilePath(path: string) {
 }
 
 async function openPendingDbFiles() {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   try {
     const paths = await api.pendingOpenDbFiles();
     for (const path of paths) {
@@ -2247,7 +2247,7 @@ async function openConnectionDeepLink(url: string) {
 }
 
 async function openPendingConnectionLinks() {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   try {
     const links = await api.pendingOpenConnectionLinks();
     for (const link of links) {
@@ -2276,7 +2276,7 @@ async function openAiConfigDeepLink(url: string) {
 }
 
 async function openPendingAiConfigLinks() {
-  if (!isTauriRuntime()) return;
+  if (!isDesktopRuntime()) return;
   try {
     const links = await api.pendingOpenAiConfigLinks();
     for (const link of links) {
@@ -3457,7 +3457,7 @@ onMounted(async () => {
       appVersion.value = v;
     })
     .catch(() => {});
-  setupTauriListeners();
+  if (isTauriRuntime()) setupTauriListeners();
   setupCloseActionPromptListener();
   void setupDetachedWindowEvents();
   void openPendingSqlFiles();
